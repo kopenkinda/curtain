@@ -9,13 +9,13 @@ A native Swift menu bar app for macOS 27. Hold Option while lowering your MacBoo
 3. At 27° by default, the curtain activates. Release Option and close the lid completely. The sound plays once macOS reports the lid fully shut.
 4. Open the lid past 32° with the default setting to dismiss the curtain and restore normal sleep.
 
-Releasing Option before activation cancels. Escape dismisses the curtain, including during a preview. After cancellation, release Option and open the lid past 32° with the default setting before trying again. Preview Curtain runs silently for two seconds and does not activate sleep prevention.
+Releasing Option before activation cancels. Escape dismisses the curtain. After cancellation, release Option and open the lid past 32° with the default setting before trying again.
 
 Settings has an activation-angle slider, a live lid-angle reading, and **Use Current Angle** to capture the position you want. The default is 27°, and your chosen angle is saved across launches. The curtain dismisses 5° above the activation angle to avoid flickering at the threshold. Start each gesture with the lid at least 5° above your activation angle.
 
 Settings also has **Sleep at low battery**, enabled at **20%** by default. Choose a cutoff from **10–100%**, or switch it off. The helper stops Curtain and requests system sleep when an active session reaches the cutoff while on battery power. It does not apply the cutoff while plugged in. If the battery is already at or below the cutoff, Curtain stays paused until you plug in, charge above the cutoff, lower the cutoff, or turn it off.
 
-The menu has sound and Open at Login switches. Curtain remembers whether you enabled it. After the helper is installed, app relaunches, ordinary rebuilds, and computer restarts do not need another administrator prompt. Enable **Open at Login** to launch Curtain automatically after signing in. Disabling Curtain persists across launches; quitting releases sleep prevention without changing that preference.
+The settings window has two toolbar tabs: Settings and How to Use Curtain. Settings contains switches for Play activation sound, Open at Login, and the battery cutoff, with compact angle and battery sliders. The menu contains status, Enable/Disable Curtain, Settings, and Quit. Curtain remembers whether you enabled it. After the helper is installed, app relaunches, ordinary rebuilds, and computer restarts do not need another administrator prompt. Enable **Open at Login** to launch Curtain automatically after signing in. Disabling Curtain persists across launches; quitting releases sleep prevention without changing that preference.
 
 Use one lid-control app at a time so another app does not change the same power setting or respond to the same gesture.
 

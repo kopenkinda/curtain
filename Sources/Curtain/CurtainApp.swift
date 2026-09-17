@@ -1,6 +1,5 @@
 import AppKit
 import IOKit.pwr_mgt
-import ServiceManagement
 
 @main
 struct CurtainMain {
@@ -35,7 +34,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var paused = false
     private var angle: Double?
     private var fraction = 0.0
-    private var previewUntil: Date?
     private var lastSensorReading = Date()
     private var lastSensorPoll = Date.distantPast
     private lazy var activationSound = Bundle.main.url(forResource: "Activation", withExtension: "wav").flatMap { NSSound(contentsOf: $0, byReference: false) }
@@ -49,8 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private var reopeningAngle: Double { activationAngle + 5 }
     private var soundEnabled: Bool {
-        get { !UserDefaults.standard.bool(forKey: "mute") }
-        set { UserDefaults.standard.set(!newValue, forKey: "mute") }
+        !UserDefaults.standard.bool(forKey: "mute")
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -98,10 +95,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let escapeDown = CGEventSource.keyState(.combinedSessionState, key: 53)
         defer { escapeWasDown = escapeDown }
         if escapeDown && !escapeWasDown { dismiss() }
-        if let previewUntil {
-            if now >= previewUntil { self.previewUntil = nil; overlay.hide(); fraction = 0 }
-            return
-        }
         let option = NSEvent.modifierFlags.contains(.option)
         if enabled || settings?.window?.isVisible == true || now.timeIntervalSince(lastSensorPoll) >= 1 {
             lastSensorPoll = now
@@ -193,7 +186,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         closingSoundPlayed = false
         armed = false
         fraction = 0
-        previewUntil = nil
         paused = true
         overlay.hide()
         power.heartbeat(active: false, force: true)
@@ -219,19 +211,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         menu.addItem(.separator())
         add(menu, enabled ? "Disable Curtain" : "Enable Curtain…", #selector(toggleEnabled))
-        add(menu, "Preview Curtain", #selector(preview))
-        add(menu, "Play Activation Sound", #selector(toggleSound), checked: soundEnabled)
-        add(menu, "Open at Login", #selector(toggleLogin), checked: SMAppService.mainApp.status == .enabled)
         menu.addItem(.separator())
         add(menu, "Settings…", #selector(showSettings), key: ",")
-        add(menu, "How to Use Curtain", #selector(showInstructions))
         add(menu, "Quit Curtain", #selector(quit), key: "q")
     }
 
-    private func add(_ menu: NSMenu, _ title: String, _ action: Selector, key: String = "", checked: Bool? = nil) {
+    private func add(_ menu: NSMenu, _ title: String, _ action: Selector, key: String = "") {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
-        if let checked { item.state = checked ? .on : .off }
         menu.addItem(item)
     }
 
@@ -253,53 +240,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    @objc private func preview() {
-        dismiss()
-        // Let the menu close before covering it. Preview always dismisses itself.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard let self else { return }
-            previewUntil = Date().addingTimeInterval(2)
-            fraction = 1
-            overlay.cover(1, animated: true)
-        }
-    }
+    @objc private func showSettings() { openSettings(tab: 0) }
 
-    @objc private func showSettings() {
+    private func openSettings(tab: Int) {
         if settings == nil {
-            settings = SettingsWindow(activationAngle: activationAngle, onBatteryChange: { [weak self] in
+            settings = SettingsWindow(onBatteryChange: { [weak self] in
                 guard let self else { return }
                 power.heartbeat(active: active || armed, force: true)
-            }) { [weak self] value in
+            }, onAngleChange: { [weak self] _ in
                 self?.dismiss()
-                UserDefaults.standard.set(value, forKey: "activationAngle")
-            }
+            })
         }
         settings?.update(currentAngle: angle)
-        settings?.showWindow(nil)
-        NSApp.activate()
+        settings?.show(tab: tab)
     }
 
-    @objc private func toggleSound() { soundEnabled.toggle() }
-    @objc private func toggleLogin() {
-        do {
-            if SMAppService.mainApp.status == .enabled { try SMAppService.mainApp.unregister() }
-            else { try SMAppService.mainApp.register() }
-        } catch { showError(error.localizedDescription) }
-    }
     @objc private func screensChanged() {
         if fraction > 0 { overlay.rebuild(fraction: fraction) }
     }
     @objc private func suspend() { dismiss(); sensor.disconnect() }
     @objc private func quit() { NSApp.terminate(nil) }
 
-    @objc private func showInstructions() {
-        let alert = NSAlert()
-        alert.messageText = "Hold Option. Lower the lid."
-        alert.informativeText = "Enable Curtain and approve the one-time sleep helper installation. Curtain remembers whether it is enabled, including after updates and restarts. Turn on Open at Login to start automatically. Hold ⌥ Option while lowering the lid. The black curtain follows the lid and activates at \(Int(activationAngle))°. You can then release Option and close the Mac completely. The sound plays once the lid is fully shut.\n\nOpen past \(Int(reopeningAngle))° to lift the curtain and restore normal sleep. Escape also dismisses it. Releasing Option before activation cancels.\n\nChange the activation angle in Settings, or choose Use Current Angle to match the lid position. Preview shows the animation for two seconds. Curtain covers your screens; applications continue running underneath."
-        alert.addButton(withTitle: "Got It")
-        NSApp.activate()
-        alert.runModal()
-    }
+    private func showInstructions() { openSettings(tab: 1) }
 
     private func showError(_ message: String) {
         let alert = NSAlert()
