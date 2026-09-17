@@ -1,63 +1,59 @@
 # Curtain
 
-A native Swift menu bar app for macOS 27. Hold Option while lowering your MacBook lid. A black curtain slides down over the screens, a short sound confirms the lid is fully shut, and the Mac keeps working with the lid shut.
+![Curtain: hold Option, lower the lid until the activation cue, then close it completely while your Mac keeps working.](Artwork/readme/banner.png)
+
+A small native Swift menu bar app for macOS 27. Hold Option and close your MacBook to keep it awake with the lid shut. Choose a sliding black curtain or a perspective effect that follows the lid. No external packages. This is a source-only project: build and sign your own copy.
+
+> [!WARNING]
+> This application was built entirely with AI. Use it at your own risk.
 
 ## Use
 
-1. Open Curtain and approve the one-time sleep helper installation. If setup was cancelled, choose **Enable Curtain…** to retry.
-2. With the lid open at least 32°, hold either Option key and lower the lid. The curtain starts descending below 67° with the default activation angle.
-3. At 27° by default, the curtain activates with a quiet tone. Release Option and close the lid completely. The sound plays once macOS reports the lid fully shut.
-4. Open the lid past 32° with the default setting to dismiss the curtain and restore normal sleep.
+- Open Curtain and approve the one-time sleep helper installation. If setup was cancelled, choose Enable Curtain to retry.
+- With the lid open, hold either Option key and lower it. A quiet tone confirms that Curtain has reached the activation angle and will stay active.
+- Release Option after the tone and close the lid completely. A second sound confirms full closure. Your Mac keeps working.
+- Open the lid to dismiss the curtain and restore normal sleep. With the default settings, activation is at 27° and dismissal is above 32°.
+- Releasing Option before activation cancels. Escape dismisses the curtain. Release Option and reopen the lid before starting another gesture.
 
-Releasing Option before activation cancels. Escape dismisses the curtain. After cancellation, release Option and open the lid past 32° with the default setting before trying again.
+The menu bar contains status, Enable/Disable Curtain, Settings, and Quit. Curtain remembers whether it was enabled. Enable Open at Login in Settings to start it automatically after signing in.
 
-Settings has an activation-angle slider, a live lid-angle reading, and **Use Current Angle** to capture the position you want. The default is 27°, and your chosen angle is saved across launches. The curtain dismisses 5° above the activation angle to avoid flickering at the threshold. Start each gesture with the lid at least 5° above your activation angle.
+## Settings
 
-Settings also has **Sleep at low battery**, enabled at **20%** by default. Choose a cutoff from **10–100%**, or switch it off. The helper stops Curtain and requests system sleep when an active session reaches the cutoff while on battery power. It does not apply the cutoff while plugged in. If the battery is already at or below the cutoff, Curtain stays paused until you plug in, charge above the cutoff, lower the cutoff, or turn it off.
+Choose Sliding curtain for the original black overlay or Perspective for a desktop snapshot that changes perspective and becomes blurrier as the lid closes. Perspective needs Screen Recording permission. Snapshots stay in memory, are discarded when the lid shuts or the gesture ends, and are never saved. Without permission, Curtain uses the sliding style.
 
-The settings window has two toolbar tabs: Settings and How to Use Curtain. Settings contains switches for Play sound effects, Open at Login, and the battery cutoff, with compact angle and battery sliders. The menu contains status, Enable/Disable Curtain, Settings, and Quit. Curtain remembers whether you enabled it. After the helper is installed, app relaunches, ordinary rebuilds, and computer restarts do not need another administrator prompt. Enable **Open at Login** to launch Curtain automatically after signing in. Disabling Curtain persists across launches; quitting releases sleep prevention without changing that preference.
+Adjust the activation angle with the slider, or position the lid and choose Use Current Angle. Larger angles activate sooner. Start with the lid at least 5° above your chosen angle; opening past that point dismisses the curtain.
 
-Use one lid-control app at a time so another app does not change the same power setting or respond to the same gesture.
+Sleep at low battery is enabled at 20% by default. Choose a cutoff from 10–100%, or turn it off. On battery power, reaching the cutoff stops Curtain and puts your Mac to sleep. The cutoff does not apply while plugged in.
 
-## Build and run
+Play sound effects controls both the activation tone and the fully closed sound. The How to Use Curtain tab has the gesture instructions.
 
-Requires macOS 27, Xcode 27, Python 3, and OpenSSL.
+## Build and sign
+
+Requires a MacBook with a supported lid-angle sensor, macOS 27, Xcode 27, Python 3, and OpenSSL available in your shell. Open Xcode once to finish its setup, then run from the cloned repository:
 
 ```sh
+export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 ./scripts/run.sh
 ```
 
-The script builds, signs, installs into `/Applications/Curtain.app`, and launches it, following the same local development workflow as Press and Blah. `./scripts/build.sh` builds and signs without installation. Set `CONFIGURATION=Release` for an optimized build.
+This builds, signs, installs into `/Applications/Curtain.app`, and launches it. Use `./scripts/build.sh` to build and sign without installing.
 
-Signing uses a persistent private development keychain in `~/Library/Application Support/Curtain/Signing`. It does not modify certificate trust or the default keychain. Keep this folder intact so rebuilt copies retain the same signing identity.
+Signing is automatic. The first build creates your own self-signed development certificate in a private keychain under `~/Library/Application Support/Curtain/Signing`. Later builds reuse it so the installed sleep helper recognizes the app. Keep that directory private and intact. No paid Apple Developer account or notarization is needed for this local build. The scripts do not change system certificate trust or your default keychain.
 
-The app icon uses `Artwork/Curtain.icon/Assets/Curtain.svg`, compiled with the same native icon workflow as Press and Blah. `scripts/make-icon.swift` renders that SVG for the menu bar. Both sound effects are generated by `scripts/make-sound.py`; their WAV files are included in Resources. There are no external packages.
+The sleep helper needs administrator approval once. Ordinary app rebuilds and restarts reuse it without asking for your password again.
 
 ## Behavior and limits
 
-Choose **Sliding curtain** (the default) or **Perspective** in Settings. Perspective holds a desktop snapshot in a fixed virtual plane and orbits a perspective camera around the hinge using the lid’s angular travel. The projection uses the center of the screen as its optical center, with no additional shrinking or translation. Blur increases as the lid closes, and the display becomes fully black when shut. It requires Screen Recording permission; without permission, Curtain uses the sliding style. Snapshots stay in memory, are discarded when the lid shuts or the gesture ends, and are refreshed on reopening. They are never saved.
+The lid-angle sensor uses undocumented hardware behavior and is not available on every MacBook. If the sensor stops responding for three seconds, Curtain cancels the session.
 
-The black overlay covers every connected screen and sits above ordinary app windows, including full-screen apps. The sliding style does not capture the screen. Neither style stops background applications from rendering. A black LCD image does not switch off its backlight. macOS controls panel power when the lid is fully closed. The overlay is not a screen lock and does not cover macOS secure login screens.
+A root-owned helper manages lid-close sleep prevention and releases it if the app disconnects. Use one lid-control app at a time: another app changing the same power setting can interfere with sleep and the battery cutoff.
 
-The hinge reader uses the MacBook's HID sensor, usage page `0x20`, usage `0x8A`, report 1. This is undocumented hardware behavior and is not available on every Mac. See the [LidAngleSensor project](https://github.com/samhenrigold/LidAngleSensor) for sensor background. If the sensor stops responding for three seconds, Curtain cancels the session. It does not substitute an estimated angle.
+The overlay covers connected screens, including ordinary full-screen apps. It does not stop background apps from rendering, turn off the backlight, or lock your Mac. macOS controls panel power when the lid is fully shut.
 
-Normal sleep assertions do not reliably prevent lid-close sleep. A small root-owned helper uses `/usr/bin/pmset -a disablesleep` to manage that setting. One administrator approval installs the helper at `/Library/PrivilegedHelperTools/com.dk.curtain.power` and its launchd definition at `/Library/LaunchDaemons/com.dk.curtain.power.plist`. The app and helper authenticate XPC connections against their identifiers and the same pinned local signing certificate. The helper accepts only an active/idle request and a battery cutoff, not shell commands or caller-supplied file paths.
+See [development notes](docs/DEVELOPMENT.md) for helper behavior, installation paths, removal instructions, and banner generation.
 
-The helper expires sleep-prevention requests after three seconds without a heartbeat and also releases them when the client disconnects or its login session is no longer active. It only restores settings it changed itself. A root-owned recovery record in `/var/db/com.dk.curtain` lets launchd restart the helper and restore sleep after a helper crash or reboot. If another app had already disabled sleep, Curtain preserves that setting; another app may therefore interfere with sleep or the battery cutoff.
+## Why can't I just download the binary?
 
-Ordinary builds replace only the app bundle. They leave the installed helper in place. Changes to helper implementation require reinstalling the helper, but changes to the app, settings, icon, and animation do not. Keep the signing identity intact so the existing helper recognizes rebuilt copies.
+Because I'm not paying Apple $100 a year for this shit. That's what Developer ID signing and notarization would cost, even for a free app. I could ship an unnotarized binary, but you'd still have to deal with macOS security warnings.
 
-The helper checks battery level once per second while handling heartbeats. At the cutoff it releases its setting and uses `IOPMSleepSystem` to request sleep. Disabling the cutoff leaves macOS's own critical-battery behavior in control; it does not override hardware power limits.
-
-## Remove the helper
-
-Quit Curtain first, then run:
-
-```sh
-sudo launchctl bootout system/com.dk.curtain.power
-sudo rm /Library/LaunchDaemons/com.dk.curtain.power.plist /Library/PrivilegedHelperTools/com.dk.curtain.power
-```
-
-The helper restores its sleep setting on termination. If sleep remains disabled after a failed cleanup, use `sudo pmset -a disablesleep 0`. Reopen Curtain and choose Enable Curtain to reinstall the helper when needed.
-
-No automated tests have been added or run during the initial build.
+Once the build tools above are installed, run `./scripts/run.sh` and you have the app ready. You also get all the source code, so you can see what it does and change whatever you want.
