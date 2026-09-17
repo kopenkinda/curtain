@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lastSensorReading = Date()
     private var lastSensorPoll = Date.distantPast
     private lazy var activationSound = Bundle.main.url(forResource: "Activation", withExtension: "wav").flatMap { NSSound(contentsOf: $0, byReference: false) }
+    private lazy var thresholdSound = Bundle.main.url(forResource: "Threshold", withExtension: "wav").flatMap { NSSound(contentsOf: $0, byReference: false) }
     private var assertion: IOPMAssertionID = 0
     private var escapeWasDown = false
     private var openingAngle = 90.0
@@ -185,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if angle <= activationAngle && power.state == "active" {
             active = true
             armed = false
+            if soundEnabled { thresholdSound?.play() }
             if overlay.style == .sliding {
                 fraction = 1
                 overlay.cover(1, animated: true)

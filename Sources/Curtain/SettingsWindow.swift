@@ -72,7 +72,7 @@ private struct SettingsPane: View {
         Form {
             Section {
                 Toggle("Open at Login", isOn: Binding(get: { openAtLogin }, set: setOpenAtLogin))
-                Toggle("Play activation sound", isOn: Binding(get: { !muted }, set: { muted = !$0 }))
+                Toggle("Play sound effects", isOn: Binding(get: { !muted }, set: { muted = !$0 }))
             } header: {
                 Text("General")
             } footer: {
@@ -197,9 +197,9 @@ private struct InstructionsPane: View {
             }
 
             step("1", title: "Hold ⌥ Option and lower the lid",
-                 detail: "The curtain follows the lid and activates at \(Int(activationAngle))°.")
+                 detail: "The curtain follows the lid. A soft tone confirms activation at \(Int(activationAngle))°.")
             step("2", title: "Close your Mac completely",
-                 detail: "Release Option after activation. The sound plays when the lid is fully shut, and your Mac keeps working.")
+                 detail: "Release Option after activation. A second sound plays when the lid is fully shut, and your Mac keeps working.")
             step("3", title: "Open the lid to return",
                  detail: "Open past \(Int(activationAngle) + 5)° to lift the curtain and restore normal sleep.")
 

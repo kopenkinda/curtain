@@ -12,7 +12,7 @@ if [ "${CONFIGURATION:-Debug}" = Release ]; then options+=(-O); else options+=(-
 xcrun swiftc "${options[@]}" -parse-as-library -module-name Curtain Sources/Shared/*.swift Sources/Curtain/*.swift -o "$app/Contents/MacOS/Curtain"
 xcrun swiftc "${options[@]}" -parse-as-library -module-name CurtainPower Sources/Shared/*.swift Sources/PowerHelper/*.swift -o "$app/Contents/MacOS/CurtainPower"
 cp Resources/install-helper.sh "$app/Contents/Resources/"
-cp Resources/Activation.wav "$app/Contents/Resources/"
+cp Resources/Activation.wav Resources/Threshold.wav "$app/Contents/Resources/"
 cp Resources/Info.plist "$app/Contents/Info.plist"
 xcrun actool Artwork/Curtain.icon \
     --compile "$app/Contents/Resources" \
