@@ -7,7 +7,7 @@ final class SettingsWindow: NSWindowController {
     private let readings = LidReadings()
     private let tabs = NSTabViewController()
 
-    init(onBatteryChange: @escaping () -> Void, onStyleChange: @escaping () -> Void, onAngleChange: @escaping (Double) -> Void) {
+    init(activation: ActivationBinding, onBatteryChange: @escaping () -> Void, onStyleChange: @escaping () -> Void, onAngleChange: @escaping (Double) -> Void) {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 540),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Curtain Settings"
@@ -17,9 +17,9 @@ final class SettingsWindow: NSWindowController {
 
         tabs.tabStyle = .toolbar
         for (title, symbol, view, height) in [
-            ("Settings", "gearshape", AnyView(SettingsPane(readings: readings,
+            ("Settings", "gearshape", AnyView(SettingsPane(readings: readings, activation: activation,
                 onBatteryChange: onBatteryChange, onStyleChange: onStyleChange, onAngleChange: onAngleChange)), 540.0),
-            ("How to Use Curtain", "questionmark.circle", AnyView(InstructionsPane()), 420.0)
+            ("How to Use Curtain", "questionmark.circle", AnyView(InstructionsPane(activation: activation)), 420.0)
         ] {
             let host = NSHostingController(rootView: view)
             host.preferredContentSize = NSSize(width: 520, height: height)
@@ -54,6 +54,7 @@ private final class LidReadings: ObservableObject {
 
 private struct SettingsPane: View {
     @ObservedObject var readings: LidReadings
+    @ObservedObject var activation: ActivationBinding
     var onBatteryChange: () -> Void
     var onStyleChange: () -> Void
     var onAngleChange: (Double) -> Void
@@ -85,6 +86,7 @@ private struct SettingsPane: View {
             }
 
             Section {
+                ActivationKeyRecorder(binding: activation)
                 Picker("Curtain style", selection: $curtainStyle) {
                     ForEach(CurtainStyle.allCases) { style in
                         Text(style.title).tag(style.rawValue)
@@ -185,26 +187,27 @@ private struct SettingsPane: View {
 }
 
 private struct InstructionsPane: View {
+    @ObservedObject var activation: ActivationBinding
     @AppStorage("activationAngle") private var activationAngle = 27.0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 8) {
-                Text("Hold Option. Close the lid.")
+                Text("Hold \(activation.key.label). Close the lid.")
                     .font(.title2.weight(.semibold))
                 Text("Enable Curtain from the menu bar. The first setup asks for administrator approval just once.")
                     .foregroundStyle(.secondary)
             }
 
-            step("1", title: "Hold ⌥ Option and lower the lid",
+            step("1", title: "Hold \(activation.key.label) and lower the lid",
                  detail: "The curtain follows the lid. A soft tone confirms activation at \(Int(activationAngle))°.")
             step("2", title: "Close your Mac completely",
-                 detail: "Release Option after activation. A second sound plays when the lid is fully shut, and your Mac keeps working.")
+                 detail: "Release \(activation.key.label) after activation. A second sound plays when the lid is fully shut, and your Mac keeps working.")
             step("3", title: "Open the lid to return",
                  detail: "Open past \(Int(activationAngle) + 5)° to lift the curtain and restore normal sleep.")
 
             Divider()
-            Text("Escape dismisses the curtain. Releasing Option before activation cancels. Turn on Open at Login in Settings to start automatically.")
+            Text("Escape dismisses the curtain. Releasing \(activation.key.label) before activation cancels. Turn on Open at Login in Settings to start automatically.")
                 .font(.callout).foregroundStyle(.secondary)
         }
         .padding(28)

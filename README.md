@@ -5,7 +5,7 @@
 A small native Swift menu bar app for macOS 27. Hold Option and close your MacBook to keep it awake with the lid shut. Choose a sliding black curtain or a perspective effect that follows the lid. No external packages. This is a source-only project: build and sign your own copy.
 
 > [!WARNING]
-> This application was built entirely with AI. Use it at your own risk.
+> This application was built entirely with GPT-6 Astra. Use it at your own risk.
 
 ## Use
 
@@ -18,6 +18,8 @@ A small native Swift menu bar app for macOS 27. Hold Option and close your MacBo
 The menu bar contains status, Enable/Disable Curtain, Settings, and Quit. Curtain remembers whether it was enabled. Enable Open at Login in Settings to start it automatically after signing in.
 
 ## Settings
+
+Click Activation key and press and release a single key to assign it. Option / Alt is the default, with either Option key accepted. A recorded modifier uses the specific left or right key. Escape cancels assignment and the reset button restores Option / Alt. Escape and Caps Lock cannot be assigned. The chosen key keeps its normal behavior in other apps.
 
 Choose Sliding curtain for the original black overlay or Perspective for a desktop snapshot that changes perspective and becomes blurrier as the lid closes. Perspective needs Screen Recording permission. Snapshots stay in memory, are discarded when the lid shuts or the gesture ends, and are never saved. Without permission, Curtain uses the sliding style.
 

@@ -15,6 +15,7 @@ struct CurtainMain {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let sensor = LidSensor()
+    private let activation = ActivationBinding()
     private let overlay = CurtainOverlay()
     private let power = PowerSession()
     private var statusItem: NSStatusItem!
@@ -57,11 +58,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         UserDefaults.standard.register(defaults: ["activationAngle": 27.0, "enabled": true, "batteryCutoffEnabled": true, "batteryCutoff": 20])
+        activation.onChange = { [weak self] in self?.dismiss() }
         overlay.onDismiss = { [weak self] in self?.dismiss() }
         overlay.onCaptureFailure = { [weak self] message in self?.notice = message }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = menuIcon
-        statusItem.button?.toolTip = "Curtain: hold Option and lower the lid"
+        statusItem.button?.toolTip = "Curtain: hold \(activation.key.label) and lower the lid"
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
@@ -97,7 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let escapeDown = CGEventSource.keyState(.combinedSessionState, key: 53)
         defer { escapeWasDown = escapeDown }
         if escapeDown && !escapeWasDown { dismiss() }
-        let option = NSEvent.modifierFlags.contains(.option)
+        let activationHeld = !activation.recording && activation.key.isDown
         if enabled || settings?.window?.isVisible == true || now.timeIntervalSince(lastSensorPoll) >= 1 {
             lastSensorPoll = now
             if let reading = sensor.read() {
@@ -157,11 +159,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         if paused {
-            if !option && angle >= reopeningAngle { paused = false }
+            if !activationHeld && angle >= reopeningAngle { paused = false }
             power.heartbeat(active: false)
             return
         }
-        if !option {
+        if !activationHeld {
             if armed || fraction > 0 { dismiss() }
             power.heartbeat(active: false)
             return
@@ -211,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         overlay.hide()
         power.heartbeat(active: false, force: true)
         if assertion != 0 { IOPMAssertionRelease(assertion); assertion = 0 }
-        statusItem?.button?.toolTip = "Curtain: hold Option and lower the lid"
+        statusItem?.button?.toolTip = "Curtain: hold \(activation.key.label) and lower the lid"
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -220,7 +222,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if active { title = "Curtain active · Mac stays awake" }
         else if power.authorizing { title = power.installed ? "Connecting to sleep helper…" : "Waiting for one-time setup…" }
         else if let notice { title = notice }
-        else if enabled { title = "Hold ⌥ Option and lower the lid" }
+        else if enabled { title = "Hold \(activation.key.label) and lower the lid" }
         else { title = "Curtain is disabled" }
         let status = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         status.isEnabled = false
@@ -265,7 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func openSettings(tab: Int) {
         if settings == nil {
-            settings = SettingsWindow(onBatteryChange: { [weak self] in
+            settings = SettingsWindow(activation: activation, onBatteryChange: { [weak self] in
                 guard let self else { return }
                 power.heartbeat(active: active || armed, force: true)
             }, onStyleChange: { [weak self] in
