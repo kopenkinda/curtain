@@ -52,6 +52,10 @@ The overlay covers connected screens, including ordinary full-screen apps. It do
 
 See [development notes](docs/DEVELOPMENT.md) for helper behavior, installation paths, removal instructions, and banner generation.
 
+## License
+
+[MIT](LICENSE).
+
 ## Why can't I just download the binary?
 
 Because I'm not paying Apple $100 a year for this shit. That's what Developer ID signing and notarization would cost, even for a free app. I could ship an unnotarized binary, but you'd still have to deal with macOS security warnings.
