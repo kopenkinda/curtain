@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var closingSoundPlayed = false
     private var armed = false
     private var enabled = false
+    private var sleeping = false
     private var paused = false
     private var angle: Double?
     private var fraction = 0.0
@@ -74,8 +75,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         self.timer = timer
         NotificationCenter.default.addObserver(self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
-        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(suspend),
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(willSleep),
             name: NSWorkspace.willSleepNotification, object: nil)
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(didWake),
+            name: NSWorkspace.didWakeNotification, object: nil)
         NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(suspend),
             name: NSWorkspace.sessionDidResignActiveNotification, object: nil)
         if UserDefaults.standard.bool(forKey: "enabled") {
@@ -95,6 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func tick() {
+        guard !sleeping else { return }
         let now = Date()
         let escapeDown = CGEventSource.keyState(.combinedSessionState, key: 53)
         defer { escapeWasDown = escapeDown }
@@ -284,6 +288,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if fraction > 0 { overlay.rebuild(fraction: fraction) }
     }
     @objc private func suspend() { dismiss(); sensor.disconnect() }
+    @objc private func willSleep() {
+        sleeping = true
+        suspend()
+        // Discard the old heartbeat deadline and ignore outstanding XPC replies.
+        power.stop()
+    }
+
+    @objc private func didWake() {
+        guard sleeping else { return }
+        sleeping = false
+        lastSensorReading = Date()
+        lastSensorPoll = .distantPast
+        guard enabled else { return }
+        do {
+            try power.start(allowInstallation: false)
+        } catch {
+            enabled = false
+            notice = error.localizedDescription
+        }
+    }
     @objc private func quit() { NSApp.terminate(nil) }
 
     private func showInstructions() { openSettings(tab: 1) }
