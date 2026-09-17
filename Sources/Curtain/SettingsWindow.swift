@@ -7,8 +7,8 @@ final class SettingsWindow: NSWindowController {
     private let readings = LidReadings()
     private let tabs = NSTabViewController()
 
-    init(onBatteryChange: @escaping () -> Void, onAngleChange: @escaping (Double) -> Void) {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 440),
+    init(onBatteryChange: @escaping () -> Void, onStyleChange: @escaping () -> Void, onAngleChange: @escaping (Double) -> Void) {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 540),
                               styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Curtain Settings"
         window.tabbingMode = .disallowed
@@ -18,7 +18,7 @@ final class SettingsWindow: NSWindowController {
         tabs.tabStyle = .toolbar
         for (title, symbol, view, height) in [
             ("Settings", "gearshape", AnyView(SettingsPane(readings: readings,
-                onBatteryChange: onBatteryChange, onAngleChange: onAngleChange)), 440.0),
+                onBatteryChange: onBatteryChange, onStyleChange: onStyleChange, onAngleChange: onAngleChange)), 540.0),
             ("How to Use Curtain", "questionmark.circle", AnyView(InstructionsPane()), 420.0)
         ] {
             let host = NSHostingController(rootView: view)
@@ -55,7 +55,10 @@ private final class LidReadings: ObservableObject {
 private struct SettingsPane: View {
     @ObservedObject var readings: LidReadings
     var onBatteryChange: () -> Void
+    var onStyleChange: () -> Void
     var onAngleChange: (Double) -> Void
+    @AppStorage("curtainStyle") private var curtainStyle = CurtainStyle.sliding.rawValue
+    @State private var captureAllowed = CGPreflightScreenCaptureAccess()
     @AppStorage("mute") private var muted = false
     @AppStorage("activationAngle") private var activationAngle = 27.0
     @AppStorage("batteryCutoffEnabled") private var batteryCutoffEnabled = true
@@ -82,6 +85,11 @@ private struct SettingsPane: View {
             }
 
             Section {
+                Picker("Curtain style", selection: $curtainStyle) {
+                    ForEach(CurtainStyle.allCases) { style in
+                        Text(style.title).tag(style.rawValue)
+                    }
+                }
                 HStack {
                     Text("Activation angle")
                     Spacer()
@@ -104,7 +112,22 @@ private struct SettingsPane: View {
             } header: {
                 Text("Lid")
             } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    if curtainStyle == CurtainStyle.perspective.rawValue {
+                        Text("Tilts a temporary desktop snapshot as the lid closes. Nothing is saved.")
+                        if !captureAllowed {
+                            Button("Allow Screen Recording…") {
+                                captureAllowed = CGRequestScreenCaptureAccess()
+                                if !captureAllowed, let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
+                            .buttonStyle(.link)
+                            Text("Sliding curtain is used until access is allowed.")
+                        }
+                    }
                 Text("Larger angles activate sooner. Open past \(Int(activationAngle) + 5)° to dismiss.")
+                }
             }
 
             Section {
@@ -128,11 +151,12 @@ private struct SettingsPane: View {
         }
         .toggleStyle(.switch)
         .formStyle(.grouped)
-        .frame(width: 520, height: 440)
+        .frame(width: 520, height: 540)
         .onAppear(perform: refreshLoginState)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             refreshLoginState()
         }
+        .onChange(of: curtainStyle) { _, _ in onStyleChange() }
         .onChange(of: activationAngle) { _, value in onAngleChange(value) }
         .onChange(of: batteryCutoffEnabled) { _, _ in onBatteryChange() }
         .onChange(of: batteryCutoff) { _, _ in onBatteryChange() }
@@ -142,6 +166,7 @@ private struct SettingsPane: View {
     }
 
     private func refreshLoginState() {
+        captureAllowed = CGPreflightScreenCaptureAccess()
         let status = SMAppService.mainApp.status
         openAtLogin = status == .enabled || status == .requiresApproval
         loginNeedsApproval = status == .requiresApproval

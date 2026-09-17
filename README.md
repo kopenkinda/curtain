@@ -35,7 +35,9 @@ The app icon uses `Artwork/Curtain.icon/Assets/Curtain.svg`, compiled with the s
 
 ## Behavior and limits
 
-The black overlay covers every connected screen and sits above ordinary app windows, including full-screen apps. It does not capture the screen or stop background applications from rendering. A black LCD image does not switch off its backlight. macOS controls panel power when the lid is fully closed. The overlay is not a screen lock and does not cover macOS secure login screens.
+Choose **Sliding curtain** (the default) or **Perspective** in Settings. Perspective holds a desktop snapshot in a fixed virtual plane and orbits a perspective camera around the hinge using the lid’s angular travel. The projection uses the center of the screen as its optical center, with no additional shrinking or translation. Blur increases as the lid closes, and the display becomes fully black when shut. It requires Screen Recording permission; without permission, Curtain uses the sliding style. Snapshots stay in memory, are discarded when the lid shuts or the gesture ends, and are refreshed on reopening. They are never saved.
+
+The black overlay covers every connected screen and sits above ordinary app windows, including full-screen apps. The sliding style does not capture the screen. Neither style stops background applications from rendering. A black LCD image does not switch off its backlight. macOS controls panel power when the lid is fully closed. The overlay is not a screen lock and does not cover macOS secure login screens.
 
 The hinge reader uses the MacBook's HID sensor, usage page `0x20`, usage `0x8A`, report 1. This is undocumented hardware behavior and is not available on every Mac. See the [LidAngleSensor project](https://github.com/samhenrigold/LidAngleSensor) for sensor background. If the sensor stops responding for three seconds, Curtain cancels the session. It does not substitute an estimated angle.
 

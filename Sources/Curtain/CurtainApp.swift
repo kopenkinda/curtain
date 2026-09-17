@@ -57,6 +57,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         UserDefaults.standard.register(defaults: ["activationAngle": 27.0, "enabled": true, "batteryCutoffEnabled": true, "batteryCutoff": 20])
         overlay.onDismiss = { [weak self] in self?.dismiss() }
+        overlay.onCaptureFailure = { [weak self] message in self?.notice = message }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = menuIcon
         statusItem.button?.toolTip = "Curtain: hold Option and lower the lid"
@@ -133,9 +134,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if active {
             if let angle, angle >= reopeningAngle {
                 dismiss()
-            } else if !closingSoundPlayed && sensor.isClosed == true {
-                closingSoundPlayed = true
-                if soundEnabled { activationSound?.play() }
+            } else {
+                let closed = sensor.isClosed == true
+                if overlay.style == .perspective {
+                    if let angle { fraction = foldProgress(angle: angle) }
+                    overlay.cover(fraction, rotationDegrees: openingAngle * fraction, fullyClosed: closed)
+                } else {
+                    fraction = 1
+                    overlay.cover(1)
+                }
+                if !closingSoundPlayed && closed {
+                    closingSoundPlayed = true
+                    if soundEnabled { activationSound?.play() }
+                }
             }
             power.heartbeat(active: active)
             return
@@ -158,27 +169,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             armed = true
             openingAngle = angle
             notice = nil
+            overlay.begin()
         }
         guard armed else { power.heartbeat(active: false); return }
-        openingAngle = max(openingAngle, angle)
+        if overlay.style == .sliding { openingAngle = max(openingAngle, angle) }
         // Enable lid-close protection before the hinge reaches the Hall sensor.
         power.heartbeat(active: true)
         let start = min(activationAngle + 40, openingAngle - 1)
-        let progress = min(1, max(0, (start - angle) / (start - activationAngle)))
+        let progress = overlay.style == .perspective ? foldProgress(angle: angle)
+            : min(1, max(0, (start - angle) / (start - activationAngle)))
         if progress > 0 || fraction > 0 {
             fraction = progress
-            overlay.cover(progress)
+            overlay.cover(progress, rotationDegrees: openingAngle * progress)
         }
         if angle <= activationAngle && power.state == "active" {
             active = true
             armed = false
-            fraction = 1
-            overlay.cover(1, animated: true)
+            if overlay.style == .sliding {
+                fraction = 1
+                overlay.cover(1, animated: true)
+            }
             let result = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
                 IOPMAssertionLevel(kIOPMAssertionLevelOn), "Curtain is closed" as CFString, &assertion)
             if result != kIOReturnSuccess { assertion = 0 }
             statusItem.button?.toolTip = "Curtain active: Mac stays awake"
         }
+    }
+
+    private func foldProgress(angle: Double) -> Double {
+        min(1, max(0, 1 - angle / max(1, openingAngle)))
     }
 
     private func dismiss() {
@@ -247,6 +266,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             settings = SettingsWindow(onBatteryChange: { [weak self] in
                 guard let self else { return }
                 power.heartbeat(active: active || armed, force: true)
+            }, onStyleChange: { [weak self] in
+                self?.dismiss()
             }, onAngleChange: { [weak self] _ in
                 self?.dismiss()
             })
