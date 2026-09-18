@@ -24,6 +24,7 @@ final class PowerHelper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
     private let journal = "/var/db/com.dk.curtain/owned"
     private var ownsSetting = false
     private var holding = false
+    private var settingCheckedAt = -Double.infinity
     private var pendingBatterySleep = false
     private var lastFailure: String?
     private var battery: BatteryStatus?
@@ -139,26 +140,36 @@ final class PowerHelper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
 
     private func apply(active: Bool) -> Bool {
         do {
-            if active && holding { return true }
-            if active && !ownsSetting {
+            let now = ProcessInfo.processInfo.systemUptime
+            if active && holding && now - settingCheckedAt < 0.5 { return true }
+            if active {
                 let settings = try pmset(["-g"])
                 guard let line = settings.split(separator: "\n").first(where: { $0.contains("SleepDisabled") }),
                       let original = line.split(whereSeparator: { $0.isWhitespace }).last,
                       original == "0" || original == "1" else { throw failure("Cannot read the current sleep setting.") }
                 // Preserve a setting already owned by another application.
-                if original == "1" { holding = true; return true }
-                // Write ownership durably before changing the persistent setting.
-                let file = open(journal, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o600)
-                guard file >= 0 else { throw failure("Cannot record the sleep setting for recovery.") }
-                let written = "owned\n".withCString { write(file, $0, 6) }
-                let synced = fsync(file)
-                close(file)
-                guard written == 6, synced == 0 else { throw failure("Cannot save the sleep recovery record.") }
-                ownsSetting = true
+                if original == "1" {
+                    holding = true
+                    settingCheckedAt = now
+                    lastFailure = nil
+                    return true
+                }
+                holding = false
+                if !ownsSetting {
+                    // Write ownership durably before changing the persistent setting.
+                    let file = open(journal, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o600)
+                    guard file >= 0 else { throw failure("Cannot record the sleep setting for recovery.") }
+                    let written = "owned\n".withCString { write(file, $0, 6) }
+                    let synced = fsync(file)
+                    close(file)
+                    guard written == 6, synced == 0 else { throw failure("Cannot save the sleep recovery record.") }
+                    ownsSetting = true
+                }
             }
             if active {
                 _ = try pmset(["-a", "disablesleep", "1"])
                 holding = true
+                settingCheckedAt = now
             } else if ownsSetting {
                 _ = try pmset(["-a", "disablesleep", "0"])
                 try FileManager.default.removeItem(atPath: journal)
@@ -168,6 +179,7 @@ final class PowerHelper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             lastFailure = nil
             return true
         } catch {
+            holding = false
             lastFailure = error.localizedDescription
             return false
         }

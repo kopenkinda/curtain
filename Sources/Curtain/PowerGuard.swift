@@ -16,18 +16,23 @@ final class PowerSession {
     var authorizing: Bool { authorization?.isRunning == true || (wantsConnection && state == nil && Date().timeIntervalSince(connectingSince) < 10) }
     var installed: Bool { FileManager.default.fileExists(atPath: PowerIdentity.helperPath) }
 
+    private var helperIsCurrent: Bool {
+        guard let bundled = Bundle.main.url(forAuxiliaryExecutable: "CurtainPower") else { return false }
+        return FileManager.default.contentsEqual(atPath: PowerIdentity.helperPath, andPath: bundled.path)
+    }
+
     func start(allowInstallation: Bool = true) throws {
         stop()
         errorMessage = nil
         wantsConnection = true
         connectingSince = Date()
-        if installed {
+        if installed && helperIsCurrent {
             try connect()
         } else if allowInstallation {
             try install()
         } else {
             state = "error"
-            errorMessage = "Choose Enable Curtain to finish setup."
+            errorMessage = "Choose Enable Curtain to install or update the sleep helper."
         }
     }
 
@@ -41,7 +46,7 @@ final class PowerSession {
         let literal = command.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", "do shell script \"\(literal)\" with administrator privileges with prompt \"Curtain needs to install its sleep helper once. Future launches will not ask again.\""]
+        process.arguments = ["-e", "do shell script \"\(literal)\" with administrator privileges with prompt \"Curtain needs to install or update its sleep helper.\""]
         let errors = Pipe()
         process.standardOutput = errors
         process.standardError = errors
@@ -53,7 +58,7 @@ final class PowerSession {
             Task { @MainActor [weak self] in
                 guard let self, generation == current, wantsConnection else { return }
                 authorization = nil
-                if status == 0 && installed && details.contains("CURTAIN_HELPER_INSTALLED") {
+                if status == 0 && helperIsCurrent && details.contains("CURTAIN_HELPER_INSTALLED") {
                     connectingSince = Date()
                     do { try connect() } catch { fail(error.localizedDescription) }
                 } else {

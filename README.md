@@ -42,7 +42,7 @@ This builds, signs, installs into `/Applications/Curtain.app`, and launches it. 
 
 Signing is automatic. The first build creates your own self-signed development certificate in a private keychain under `~/Library/Application Support/Curtain/Signing`. Later builds reuse it so the installed sleep helper recognizes the app. Keep that directory private and intact. No paid Apple Developer account or notarization is needed for this local build. The scripts do not change system certificate trust or your default keychain.
 
-The sleep helper needs administrator approval once. Ordinary app rebuilds and restarts reuse it without asking for your password again.
+The sleep helper needs administrator approval to install or update. If a rebuilt app contains a different helper, choose Enable Curtain to install it. Restarts reuse an identical helper without another password prompt.
 
 ## Behavior and limits
 
