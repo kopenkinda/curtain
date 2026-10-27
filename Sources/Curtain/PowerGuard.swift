@@ -1,5 +1,11 @@
 import AppKit
 import ServiceManagement
+import os
+
+private let log = Logger(subsystem: "com.dk.curtain", category: "power")
+// Failed or missing replies are tolerated this long before the session is
+// treated as broken. powerd can stall for seconds while the lid closes.
+private let failureTolerance: TimeInterval = 15
 
 @MainActor
 final class PowerSession {
@@ -10,13 +16,14 @@ final class PowerSession {
     private var lastWrite = Date.distantPast
     private var lastCommand = false
     private var lastReply = Date.distantPast
+    private var failingSince: Date?
     private var generation = 0
     private(set) var state: String?
     private(set) var errorMessage: String?
     var authorizing: Bool { authorization?.isRunning == true || (wantsConnection && state == nil && Date().timeIntervalSince(connectingSince) < 10) }
     var installed: Bool { FileManager.default.fileExists(atPath: PowerIdentity.helperPath) }
 
-    private var helperIsCurrent: Bool {
+    var helperIsCurrent: Bool {
         guard let bundled = Bundle.main.url(forAuxiliaryExecutable: "CurtainPower") else { return false }
         return FileManager.default.contentsEqual(atPath: PowerIdentity.helperPath, andPath: bundled.path)
     }
@@ -106,7 +113,7 @@ final class PowerSession {
     func heartbeat(active: Bool, force: Bool = false) {
         guard wantsConnection, let connection else { return }
         let now = Date()
-        if lastReply != .distantPast && now.timeIntervalSince(lastReply) > 3 {
+        if lastReply != .distantPast && now.timeIntervalSince(lastReply) > failureTolerance {
             fail("The sleep helper stopped responding. Choose Enable Curtain to reconnect.")
             return
         }
@@ -118,7 +125,7 @@ final class PowerSession {
             let message = error.localizedDescription
             Task { @MainActor [weak self] in
                 guard let self, generation == current else { return }
-                fail("Could not reach the sleep helper. \(message)")
+                transientFailure("Could not reach the sleep helper. \(message)")
             }
         } as? CurtainPowerProtocol
         let cutoff = UserDefaults.standard.bool(forKey: "batteryCutoffEnabled")
@@ -127,13 +134,33 @@ final class PowerSession {
             Task { @MainActor [weak self] in
                 guard let self, generation == current else { return }
                 lastReply = Date()
-                if success { state = message; errorMessage = nil }
-                else { fail(message) }
+                if success {
+                    if failingSince != nil { log.notice("Sleep helper recovered") }
+                    failingSince = nil
+                    state = message
+                    errorMessage = nil
+                } else { transientFailure(message) }
             }
         }
     }
 
-    private func fail(_ message: String) { state = "error"; errorMessage = message }
+    private func fail(_ message: String) {
+        log.error("Sleep helper failed: \(message, privacy: .public)")
+        state = "error"
+        errorMessage = message
+    }
+
+    // Keep the current state, so an active session keeps sending heartbeats,
+    // unless failures persist.
+    private func transientFailure(_ message: String) {
+        let now = Date()
+        if failingSince == nil {
+            failingSince = now
+            log.notice("Sleep helper reported a problem: \(message, privacy: .public)")
+        }
+        errorMessage = message
+        if let failingSince, now.timeIntervalSince(failingSince) > failureTolerance { fail(message) }
+    }
 
     func stop() {
         wantsConnection = false
@@ -146,6 +173,7 @@ final class PowerSession {
         state = nil
         lastWrite = .distantPast
         lastReply = .distantPast
+        failingSince = nil
         lastCommand = false
     }
 }

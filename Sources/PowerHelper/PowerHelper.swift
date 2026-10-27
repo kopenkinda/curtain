@@ -2,6 +2,7 @@ import Foundation
 import SystemConfiguration
 import Darwin
 import IOKit.pwr_mgt
+import os
 
 @main
 struct HelperMain {
@@ -12,6 +13,15 @@ struct HelperMain {
         dispatchMain()
     }
 }
+
+private let log = Logger(subsystem: "com.dk.curtain", category: "helper")
+
+// A lease survives this long without a heartbeat. The app's timer can stall
+// briefly while the lid closes, and losing the lease then sleeps the Mac.
+private let leaseDuration: TimeInterval = 15
+// Disconnected clients keep their lease briefly so an app reconnect does not
+// clear the setting while the lid is shut.
+private let disconnectGrace: TimeInterval = 5
 
 // XPC callbacks, the watchdog, and signal handlers all serialize power changes
 // through this queue. The exported methods accept no commands or file paths.
@@ -69,7 +79,12 @@ final class PowerHelper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
         connection.exportedObject = PowerClient(helper: self, id: id, uid: connection.effectiveUserIdentifier)
         connection.invalidationHandler = { [weak self] in
             guard let self else { return }
-            queue.async { [self] in leases[id] = nil; _ = reconcile() }
+            queue.async { [self] in
+                if let lease = leases[id] {
+                    leases[id]?.deadline = min(lease.deadline, ProcessInfo.processInfo.systemUptime + disconnectGrace)
+                }
+                _ = reconcile()
+            }
         }
         connection.resume()
         return true
@@ -96,7 +111,7 @@ final class PowerHelper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             // before an incoming idle heartbeat can remove it.
             _ = reconcile()
             let lowBattery = battery?.reached(limit) == true
-            if active && (!lowBattery || leases[id] != nil) { leases[id] = (uid, ProcessInfo.processInfo.systemUptime + 3, limit) }
+            if active && (!lowBattery || leases[id] != nil) { leases[id] = (uid, ProcessInfo.processInfo.systemUptime + leaseDuration, limit) }
             else { leases[id] = nil }
             let success = reconcile()
             reply(success, success ? (lowBattery ? "battery" : (active ? "active" : "ready")) : (lastFailure ?? "Could not change the sleep setting."))
@@ -143,10 +158,20 @@ final class PowerHelper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             let now = ProcessInfo.processInfo.systemUptime
             if active && holding && now - settingCheckedAt < 0.5 { return true }
             if active {
-                let settings = try pmset(["-g"])
-                guard let line = settings.split(separator: "\n").first(where: { $0.contains("SleepDisabled") }),
-                      let original = line.split(whereSeparator: { $0.isWhitespace }).last,
-                      original == "0" || original == "1" else { throw failure("Cannot read the current sleep setting.") }
+                let original: Substring
+                do {
+                    let settings = try pmset(["-g"])
+                    guard let line = settings.split(separator: "\n").first(where: { $0.contains("SleepDisabled") }),
+                          let value = line.split(whereSeparator: { $0.isWhitespace }).last,
+                          value == "0" || value == "1" else { throw failure("Cannot read the current sleep setting.") }
+                    original = value
+                } catch where holding {
+                    // powerd is often slow while the lid closes. Sleep is already
+                    // disabled, so keep holding and check again shortly.
+                    log.notice("Sleep setting check failed while holding: \(error.localizedDescription, privacy: .public)")
+                    settingCheckedAt = now
+                    return true
+                }
                 // Preserve a setting already owned by another application.
                 if original == "1" {
                     holding = true
@@ -167,10 +192,12 @@ final class PowerHelper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
                 }
             }
             if active {
+                log.notice("Disabling sleep")
                 _ = try pmset(["-a", "disablesleep", "1"])
                 holding = true
                 settingCheckedAt = now
             } else if ownsSetting {
+                log.notice("Restoring sleep")
                 _ = try pmset(["-a", "disablesleep", "0"])
                 try FileManager.default.removeItem(atPath: journal)
                 ownsSetting = false
@@ -179,6 +206,7 @@ final class PowerHelper: NSObject, NSXPCListenerDelegate, @unchecked Sendable {
             lastFailure = nil
             return true
         } catch {
+            log.error("Sleep setting change failed: \(error.localizedDescription, privacy: .public)")
             holding = false
             lastFailure = error.localizedDescription
             return false

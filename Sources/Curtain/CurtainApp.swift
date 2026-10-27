@@ -1,5 +1,8 @@
 import AppKit
-import IOKit.pwr_mgt
+import os
+
+private let log = Logger(subsystem: "com.dk.curtain", category: "session")
+private let reconnectingNotice = "Reconnecting to the sleep helper…"
 
 @main
 struct CurtainMain {
@@ -40,7 +43,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var lastSensorPoll = Date.distantPast
     private lazy var activationSound = Bundle.main.url(forResource: "Activation", withExtension: "wav").flatMap { NSSound(contentsOf: $0, byReference: false) }
     private lazy var thresholdSound = Bundle.main.url(forResource: "Threshold", withExtension: "wav").flatMap { NSSound(contentsOf: $0, byReference: false) }
-    private var assertion: IOPMAssertionID = 0
+    // Prevents idle sleep and App Nap. With the lid shut no window is visible,
+    // and a throttled timer would stop the heartbeats that keep the Mac awake.
+    private var activity: NSObjectProtocol?
+    private var recoveringSince: Date?
+    private var lastRecoveryAttempt = Date.distantPast
     private var escapeWasDown = false
     private var openingAngle = 90.0
     private var notice: String?
@@ -59,8 +66,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         UserDefaults.standard.register(defaults: ["activationAngle": 27.0, "enabled": true, "batteryCutoffEnabled": true, "batteryCutoff": 20])
-        activation.onChange = { [weak self] in self?.dismiss() }
-        overlay.onDismiss = { [weak self] in self?.dismiss() }
+        activation.onChange = { [weak self] in self?.dismiss("activation key changed") }
+        overlay.onDismiss = { [weak self] in self?.dismiss("Escape pressed") }
         overlay.onCaptureFailure = { [weak self] message in self?.notice = message }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = menuIcon
@@ -102,7 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let now = Date()
         let escapeDown = CGEventSource.keyState(.combinedSessionState, key: 53)
         defer { escapeWasDown = escapeDown }
-        if escapeDown && !escapeWasDown { dismiss() }
+        if escapeDown && !escapeWasDown { dismiss("Escape pressed") }
         let activationHeld = !activation.recording && activation.key.isDown
         if enabled || settings?.window?.isVisible == true || now.timeIntervalSince(lastSensorPoll) >= 1 {
             lastSensorPoll = now
@@ -111,8 +118,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 lastSensorReading = now
             } else {
                 angle = nil
-                if now.timeIntervalSince(lastSensorReading) > 3 {
-                    dismiss()
+                // The sensor may stop answering with the lid shut. The clamshell
+                // state is enough to keep an active session until it reopens.
+                if now.timeIntervalSince(lastSensorReading) > 3 && !(active && sensor.isClosed == true) {
+                    dismiss("lid sensor unavailable")
                     notice = "Lid sensor unavailable"
                 }
             }
@@ -121,26 +130,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard enabled else { return }
         let state = power.state
         if state == "error" || (state == nil && !power.authorizing) {
-            dismiss()
-            enabled = false
-            notice = power.errorMessage ?? "Could not reach the sleep helper. Choose Enable Curtain to reconnect."
-            power.stop()
+            recoverPower()
             return
         }
+        if state != nil && recoveringSince != nil {
+            log.notice("Reconnected to the sleep helper")
+            recoveringSince = nil
+            if notice == reconnectingNotice { notice = nil }
+        }
         if state == "battery" {
-            if active || armed || fraction > 0 { dismiss() }
+            if active || armed || fraction > 0 { dismiss("battery cutoff reached") }
             notice = "Paused: battery is at or below \(UserDefaults.standard.integer(forKey: "batteryCutoff"))%."
             power.heartbeat(active: false)
             return
         }
         if notice?.hasPrefix("Paused: battery") == true { notice = nil }
-        guard state == "ready" || state == "active" else {
-            power.heartbeat(active: false)
-            return
-        }
+        // Keep requesting protection while reconnecting to the helper.
         if active {
             if let angle, angle >= reopeningAngle {
-                dismiss()
+                dismiss("lid reopened")
             } else {
                 let closed = sensor.isClosed == true
                 if overlay.style == .perspective {
@@ -158,6 +166,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             power.heartbeat(active: active)
             return
         }
+        guard state == "ready" || state == "active" else {
+            power.heartbeat(active: false)
+            return
+        }
         guard let angle else {
             power.heartbeat(active: active)
             return
@@ -168,7 +180,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return
         }
         if !activationHeld {
-            if armed || fraction > 0 { dismiss() }
+            if armed || fraction > 0 { dismiss("activation key released") }
             power.heartbeat(active: false)
             return
         }
@@ -197,9 +209,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 fraction = 1
                 overlay.cover(1, animated: true)
             }
-            let result = IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString,
-                IOPMAssertionLevel(kIOPMAssertionLevelOn), "Curtain is closed" as CFString, &assertion)
-            if result != kIOReturnSuccess { assertion = 0 }
+            activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .latencyCritical], reason: "Curtain is closed")
+            log.notice("Session started at \(Int(angle))°")
             statusItem.button?.toolTip = "Curtain active: Mac stays awake"
         }
     }
@@ -208,7 +219,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         min(1, max(0, 1 - angle / max(1, openingAngle)))
     }
 
-    private func dismiss() {
+    private func recoverPower() {
+        let now = Date()
+        let since = recoveringSince ?? now
+        recoveringSince = since
+        // A missing or outdated helper needs administrator approval, and
+        // repeated failures are unlikely to clear without the user.
+        guard power.installed, power.helperIsCurrent, now.timeIntervalSince(since) <= 30 else {
+            giveUpOnPower(power.errorMessage ?? "Could not reach the sleep helper. Choose Enable Curtain to reconnect.")
+            return
+        }
+        notice = reconnectingNotice
+        guard now.timeIntervalSince(lastRecoveryAttempt) >= 5 else { return }
+        lastRecoveryAttempt = now
+        log.notice("Reconnecting to the sleep helper: \(self.power.errorMessage ?? "no reply", privacy: .public)")
+        do { try power.start(allowInstallation: false) } catch { giveUpOnPower(error.localizedDescription) }
+    }
+
+    private func giveUpOnPower(_ message: String) {
+        dismiss("sleep helper unavailable: \(message)")
+        enabled = false
+        recoveringSince = nil
+        notice = message
+        power.stop()
+    }
+
+    private func dismiss(_ reason: String) {
+        if active || armed || fraction > 0 { log.notice("Session ended: \(reason, privacy: .public)") }
         active = false
         closingSoundPlayed = false
         armed = false
@@ -216,7 +253,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         paused = true
         overlay.hide()
         power.heartbeat(active: false, force: true)
-        if assertion != 0 { IOPMAssertionRelease(assertion); assertion = 0 }
+        if let activity { ProcessInfo.processInfo.endActivity(activity) }
+        activity = nil
         statusItem?.button?.toolTip = "Curtain: hold \(activation.key.label) and lower the lid"
     }
 
@@ -251,7 +289,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleEnabled() {
         if enabled {
-            dismiss()
+            dismiss("Curtain disabled")
+            recoveringSince = nil
             power.stop()
             enabled = false
             notice = nil
@@ -275,9 +314,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard let self else { return }
                 power.heartbeat(active: active || armed, force: true)
             }, onStyleChange: { [weak self] in
-                self?.dismiss()
+                self?.dismiss("style changed")
             }, onAngleChange: { [weak self] _ in
-                self?.dismiss()
+                self?.dismiss("activation angle changed")
             })
         }
         settings?.update(currentAngle: angle)
@@ -287,10 +326,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func screensChanged() {
         if fraction > 0 { overlay.rebuild(fraction: fraction) }
     }
-    @objc private func suspend() { dismiss(); sensor.disconnect() }
+    @objc private func suspend() { dismiss("login session became inactive"); sensor.disconnect() }
     @objc private func willSleep() {
         sleeping = true
-        suspend()
+        dismiss("Mac is going to sleep")
+        sensor.disconnect()
+        recoveringSince = nil
         // Discard the old heartbeat deadline and ignore outstanding XPC replies.
         power.stop()
     }
@@ -322,7 +363,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         timer?.invalidate()
-        dismiss()
+        dismiss("quitting")
         overlay.hide(animated: false)
         power.stop()
         sensor.disconnect()

@@ -46,11 +46,11 @@ The sleep helper needs administrator approval to install or update. If a rebuilt
 
 ## Behavior and limits
 
-The lid-angle sensor uses undocumented hardware behavior and is not available on every MacBook. If the sensor stops responding for three seconds, Curtain cancels the session.
+The lid-angle sensor uses undocumented hardware behavior and is not available on every MacBook. If the sensor stops responding for three seconds while the lid is open, Curtain cancels the session. With the lid shut, Curtain relies on the Mac's lid-closed state instead.
 
-A root-owned helper manages lid-close sleep prevention and releases it if the app disconnects. Use one lid-control app at a time: another app changing the same power setting can interfere with sleep and the battery cutoff.
+A root-owned helper manages lid-close sleep prevention and releases it if the app disconnects or stops responding. If the helper briefly fails or disconnects, Curtain reconnects automatically and keeps the session. Use one lid-control app at a time: another app changing the same power setting can interfere with sleep and the battery cutoff.
 
-The overlay covers connected screens, including ordinary full-screen apps. It does not stop background apps from rendering, turn off the backlight, or lock your Mac. macOS controls panel power when the lid is fully shut.
+The overlay covers connected screens, including ordinary full-screen apps. It does not stop background apps from rendering, turn off the backlight, or lock your Mac. A shut lid turns the display off, so macOS still locks according to the Lock Screen setting "Require password after screen saver begins or display is turned off". macOS controls panel power when the lid is fully shut.
 
 See [development notes](docs/DEVELOPMENT.md) for helper behavior, installation paths, removal instructions, and banner generation.
 

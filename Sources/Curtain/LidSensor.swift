@@ -4,6 +4,7 @@ import IOKit.hid
 @MainActor
 final class LidSensor {
     private var device: IOHIDDevice?
+    private var lastConnectAttempt = Date.distantPast
 
     var isClosed: Bool? {
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPMrootDomain"))
@@ -14,7 +15,12 @@ final class LidSensor {
     }
 
     func read() -> Double? {
-        if device == nil { connect() }
+        // Scanning every HID device on each tick is wasteful while the sensor
+        // is silent, which can last for hours with the lid shut.
+        if device == nil && Date().timeIntervalSince(lastConnectAttempt) >= 1 {
+            lastConnectAttempt = Date()
+            connect()
+        }
         guard let device else { return nil }
         var bytes = [UInt8](repeating: 0, count: 8)
         var length = bytes.count
